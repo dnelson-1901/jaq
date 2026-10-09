@@ -398,20 +398,37 @@ where
     Box::new(fold(xs, init, f, |_| (), |_, _| None, Some))
 }
 
-fn zip_with_cloned<T, U: Clone>(mut xs: &[T], y: U) -> impl Iterator<Item = (&T, U)> {
-    let mut y = Some(y);
-    core::iter::from_fn(move || {
-        let (x, rest) = xs.split_first()?;
-        xs = rest;
+struct ZipWithCloned<'a, T, U> {
+    xs: &'a [T],
+    y: Option<U>,
+}
+
+impl<'a, T, U: Clone> Iterator for ZipWithCloned<'a, T, U> {
+    type Item = (&'a T, U);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (x, rest) = self.xs.split_first()?;
+        self.xs = rest;
 
         let y = if rest.is_empty() {
-            y.take()?
+            self.y.take()
         } else {
-            y.as_ref()?.clone()
+            self.y.as_ref().cloned()
         };
 
-        Some((x, y))
-    })
+        Some((x, y?))
+    }
+
+    // this is absolutely crucial for memory consumption!
+    // try removing this and run: `nth(1000000; repeat(0))`
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.xs.len();
+        (len, Some(len))
+    }
+}
+
+fn zip_with_cloned<T, U: Clone>(xs: &[T], y: U) -> impl Iterator<Item = (&T, U)> {
+    ZipWithCloned { xs, y: Some(y) }
 }
 
 /// Runs `def recurse(f): ., (f? | recurse(f)); v | recurse(f)`.
